@@ -1,40 +1,30 @@
-from flask import Flask, request, send_file, jsonify
-from io import BytesIO
+from flask import Flask, request, jsonify
 import UnityPy
-import logging
+import os
 
 app = Flask(__name__)
 
 @app.route("/")
 def home():
-    return jsonify({"message": "UnityPy API is running!"})
+    return "Unity Asset Modifier API is running!"
 
-@app.route("/upload", methods=["POST"])
-def upload():
-    try:
-        if "file" not in request.files:
-            return jsonify({"error": "No file uploaded"}), 400
-        
-        file = request.files["file"]
-        env = UnityPy.load(BytesIO(file.read()))
+@app.route("/extract", methods=["POST"])
+def extract_assets():
+    file = request.files.get("file")
+    if not file:
+        return jsonify({"error": "No file uploaded"}), 400
 
-        deleted_scripts = []
+    temp_path = os.path.join("/tmp", file.filename)
+    file.save(temp_path)
 
-        for obj in env.objects:
-            if obj.type.name == "MonoBehaviour":
-                data = obj.read()
-                if data.name and "anticheat" in data.name.lower():
-                    env.objects.remove(obj)
-                    deleted_scripts.append(data.name)
+    env = UnityPy.load(temp_path)
+    extracted = []
+    for obj in env.objects:
+        if obj.type.name in ["Texture2D", "AudioClip", "TextAsset"]:
+            data = obj.read()
+            extracted.append({"name": data.name, "type": obj.type.name})
 
-        modified_asset = BytesIO(env.file.save())
-        modified_asset.seek(0)
-        logging.info(f"Deleted scripts: {deleted_scripts}")
-
-        return send_file(modified_asset, as_attachment=True, download_name=file.filename)
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    return jsonify({"extracted_assets": extracted})
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
